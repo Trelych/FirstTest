@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"math"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -87,15 +88,13 @@ type cityPackData struct {
 	CityPackData []openWeatherFull `json:"list"`
 }
 
-/*  to use in first init
 type sities struct {
-	Id int64
-	Name string
-	Country string
+	Id             int64
+	Name           string
+	Country        string
 	Weather_api_id int64
 }
-*/
-/* temporary unused function
+
 type forecast struct {
 	Id        int64 //`omitempty`
 	Time      int64
@@ -105,7 +104,30 @@ type forecast struct {
 	City_id   int
 	City_name string //`omitempty`
 }
-*/
+
+type requestError struct {
+	Error string `json:"error,omitempty"`
+}
+
+type requestObject struct {
+	City     string  `json:"city"`
+	Date     int64   `json:"date"`
+	Pressure float64 `json:"pressure,omitempty"`
+	Humidity float64 `json:"humidity,omitempty"`
+	Temp     float64 `json:"temp,omitempty"`
+}
+
+type requestInfo struct {
+	Command string        `json:"command"`
+	Params  requestObject `json:"params,omitempty"`
+}
+
+type requestReturn struct {
+	Command string        `json:"command"`
+	Error   requestError  `json:"error,omitempty"`
+	Object  requestObject `json:"object,omitempty"`
+}
+
 func GetJsonFromUrl(url string, jsonObject interface{}) (error error) {
 	resp, err := http.Get(url)
 	if err != nil {
@@ -147,7 +169,6 @@ func makeRequestString(param ...string) (result string) {
 
 }
 
-/* temporary unused function
 func readRowsFromPG(db *sql.DB, query string) (forecastResult []*forecast, err error) {
 	rows, err := db.Query(query)
 	if err != nil {
@@ -173,7 +194,7 @@ func readRowsFromPG(db *sql.DB, query string) (forecastResult []*forecast, err e
 	return resultForecast, nil
 
 }
-*/
+
 func getForecastData(db *sql.DB) (err error) {
 	var packOfCities cityPackData
 	err = GetJsonFromUrl(makeRequestString(apiAddr, appid), &packOfCities)
@@ -201,7 +222,22 @@ func main() {
 	if err != nil {
 		fmt.Println(err)
 	}
+	//_ := db //чтобы не мешалось
 
+	param := new(requestInfo)
+	param.Command = "GetWeather"
+	param.Params.City = "Moscow"
+	param.Params.Date = 1532284783
+
+	query := "select f.*, s.name from forecasts f inner join sities s on f.city_id = s.id and s.name = '" + param.Params.City + "' and f.time > " + strconv.Itoa(int(param.Params.Date)) + " order by f.time asc limit 1"
+
+	forecastNow, err := readRowsFromPG(db, query)
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println("Closed forecast for", time.Unix(forecastNow[0].Time, 0), "City", forecastNow[0].City_name, "Temperature is", forecastNow[0].Temp)
+
+	/* infinity collect data from OpenWeatherMap
 	for {
 		err := getForecastData(db)
 		if err != nil {
@@ -211,6 +247,8 @@ func main() {
 		}
 
 	}
+	*/
+
 	/*
 		nowForecast := make([]*forecast, 0)
 		requestString := "SELECT f.*, s2.name FROM forecasts f INNER JOIN sities s2 ON f.city_id = s2.id"
