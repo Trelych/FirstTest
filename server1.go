@@ -7,7 +7,6 @@ import (
 	"fmt"
 	_ "github.com/lib/pq"
 	"io/ioutil"
-	"log"
 	"math"
 	"net/http"
 	"time"
@@ -96,7 +95,7 @@ type sities struct {
 	Weather_api_id int64
 }
 */
-
+/* temporary unused function
 type forecast struct {
 	Id        int64 //`omitempty`
 	Time      int64
@@ -106,7 +105,7 @@ type forecast struct {
 	City_id   int
 	City_name string //`omitempty`
 }
-
+*/
 func GetJsonFromUrl(url string, jsonObject interface{}) (error error) {
 	resp, err := http.Get(url)
 	if err != nil {
@@ -148,56 +147,82 @@ func makeRequestString(param ...string) (result string) {
 
 }
 
+/* temporary unused function
+func readRowsFromPG(db *sql.DB, query string) (forecastResult []*forecast, err error) {
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	resultForecast := make([]*forecast, 0)
+
+	for rows.Next() {
+		line := new(forecast)
+		err := rows.Scan(&line.Id, &line.Time, &line.Temp, &line.Humidity, &line.Pressure, &line.City_id, &line.City_name)
+		if err != nil {
+			return nil, err
+		}
+		resultForecast = append(resultForecast, line)
+
+	}
+	if err = rows.Err(); err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+	return resultForecast, nil
+
+}
+*/
+func getForecastData(db *sql.DB) (err error) {
+	var packOfCities cityPackData
+	err = GetJsonFromUrl(makeRequestString(apiAddr, appid), &packOfCities)
+
+	if err != nil {
+		fmt.Println("error getting json:\n", err)
+		return err
+	}
+	for i := range packOfCities.CityPackData {
+
+		result, err := db.Exec("INSERT INTO forecasts VALUES(DEFAULT, $1, $2, $3, $4, (select id from sities where weather_api_id = $5))", packOfCities.CityPackData[i].Dt, (math.Round(packOfCities.CityPackData[i].Omain.Temp*100) / 100), (math.Round(packOfCities.CityPackData[i].Omain.Humidity*100) / 100), (math.Round((packOfCities.CityPackData[i].Omain.Pressure * hPaToRussian * 100) / 100)), packOfCities.CityPackData[i].Id)
+		if err != nil {
+			fmt.Println("Error inserting:", err)
+			return err
+		} else {
+			fmt.Println(result)
+		}
+
+	}
+	return nil
+}
+
 func main() {
 	db, err := sql.Open("postgres", "postgres://postgres:asecurepassword@localhost/weather?sslmode=disable")
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	rows, err := db.Query("SELECT f.*, s2.name FROM forecasts f INNER JOIN sities s2 ON f.city_id = s2.id")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer rows.Close()
-
-	nowForecast := make([]*forecast, 0)
-
-	for rows.Next() {
-		line := new(forecast)
-
-		err := rows.Scan(&line.Id, &line.Time, &line.Temp, &line.Humidity, &line.Pressure, &line.City_id, &line.City_name)
+	for {
+		err := getForecastData(db)
 		if err != nil {
-			log.Fatal(err)
-		}
-
-		nowForecast = append(nowForecast, line)
-	}
-	if err = rows.Err(); err != nil {
-		log.Fatal(err)
-	}
-
-	for _, line := range nowForecast {
-		fmt.Println("\n\nForecast for city #", line.City_name, "at", time.Unix(line.Time, 0), "\nTemperature", line.Temp, "C degrees\nHumidity =", line.Humidity, "%\nPressure =", line.Pressure, "mmHg")
-	}
-
-	var packOfCities cityPackData
-	err = GetJsonFromUrl(makeRequestString(apiAddr, appid), &packOfCities)
-	if err != nil {
-		fmt.Println("error getting json:\n", err)
-	}
-	fmt.Println("\n\n", packOfCities.CityPackData, "\n\n")
-	fmt.Println("Cities count is:", packOfCities.Cnt)
-	for i := range packOfCities.CityPackData {
-		fmt.Println("i =", i)
-		fmt.Println("Temperature for", packOfCities.CityPackData[i].Name, "at", time.Unix(packOfCities.CityPackData[i].Dt, 0), "Unix=", packOfCities.CityPackData[i].Dt, "is", packOfCities.CityPackData[i].Omain.Temp, "C degrees. \nHumidity is ", packOfCities.CityPackData[i].Omain.Humidity, "%\nPressure is", int64(float64(packOfCities.CityPackData[i].Omain.Pressure)*hPaToRussian), "Mm\n\n")
-		fmt.Println("")
-		result, err := db.Exec("INSERT INTO forecasts VALUES(DEFAULT, $1, $2, $3, $4, (select id from sities where weather_api_id = $5))", packOfCities.CityPackData[i].Dt, (math.Round(packOfCities.CityPackData[i].Omain.Temp*100) / 100), (math.Round(packOfCities.CityPackData[i].Omain.Humidity*100) / 100), (math.Round((packOfCities.CityPackData[i].Omain.Pressure * hPaToRussian * 100) / 100)), packOfCities.CityPackData[i].Id)
-		if err != nil {
-			fmt.Println("Error inserting:", err)
+			fmt.Println(err)
 		} else {
-			fmt.Println(result)
+			time.Sleep(time.Hour)
 		}
 
 	}
+	/*
+		nowForecast := make([]*forecast, 0)
+		requestString := "SELECT f.*, s2.name FROM forecasts f INNER JOIN sities s2 ON f.city_id = s2.id"
+		nowForecast, err = readRowsFromPG(db, requestString)
+		if err != nil {
+			fmt.Println(err)
+		}
+		fmt.Println(nowForecast)
+
+		for _, line := range nowForecast {
+			fmt.Println("\n\nForecast for city #", line.City_name, "at", time.Unix(line.Time, 0), "\nTemperature", line.Temp, "C degrees\nHumidity =", line.Humidity, "%\nPressure =", line.Pressure, "mmHg")
+		}
+	*/
 
 }
