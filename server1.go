@@ -1,16 +1,20 @@
 package main
 
 import (
+	"bufio"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	_ "github.com/lib/pq"
 	"io/ioutil"
 	"math"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
+	//	"bytes"
 )
 
 var (
@@ -218,15 +222,16 @@ func getAndSubmitForecastData(db *sql.DB) (err error) {
 	return nil
 }
 
-func processRequest(request *requestInfo) /*result requestReturn*/ {
+func processRequest(request requestInfo, db *sql.DB) (result requestReturn) {
 	switch request.Command {
 	case "GetWeather":
 		fmt.Println("!Getting weather info")
+		result = getCorrectForecastData(db, request)
 
 	case "closeConnection":
 		fmt.Println("Closing connection")
 	}
-	//return request
+	return result
 }
 
 func makeQueryStringForClientRequest(city string, time int64) string {
@@ -254,7 +259,7 @@ func getCorrectForecastData(db *sql.DB, request requestInfo) (result requestRetu
 	result.Command = request.Command
 
 	if closest < 0 {
-		result.Error.Message = "Data not found"
+		result.Error.Message = "Data for city " + request.Params.City + " is not found."
 	} else {
 		result.Object.Date = forecastNow[closest].Time
 		result.Object.City = forecastNow[closest].City_name
@@ -265,18 +270,54 @@ func getCorrectForecastData(db *sql.DB, request requestInfo) (result requestRetu
 	return result
 }
 
+func handleConnection(conn net.Conn, db *sql.DB) {
+	//conn.SetDeadline(time.Now()+(10*time.Second))
+	name := conn.RemoteAddr().String()
+	fmt.Println("New connection from", name)
+	var returnByteArray []byte
+	var amount uint32
+	amount = 0
+	var request requestInfo
+	var responce requestReturn
+	defer func() {
+		conn.Close()
+		fmt.Println("disconnected")
+	}()
+	scanner := bufio.NewScanner(conn)
+	for scanner.Scan() {
+		myByteArray := scanner.Bytes()
+		fmt.Println("Received array of Bytes\nAmount of bytes received", len(myByteArray))
+		fmt.Println("Array is", string(myByteArray))
+		err := json.Unmarshal(myByteArray[4:], &request)
+		if err != nil {
+			fmt.Println("Unmarshal error: ", err)
+			break
+		} else {
+			responce = processRequest(request, db)
+			myByteArray, err = json.Marshal(responce)
+			binary.LittleEndian.PutUint32(returnByteArray, amount)
+			for _, x := range myByteArray {
+				returnByteArray = append(returnByteArray, x)
+			}
+			conn.Write(returnByteArray)
+
+		}
+
+	}
+}
+
 func main() {
 	db, err := sql.Open("postgres", "postgres://postgres:asecurepassword@localhost/weather?sslmode=disable")
 	if err != nil {
 		fmt.Println(err)
 	}
-	//_ := db //чтобы не мешалось
 
+	//test stuct to check the right
 	param := new(requestInfo)
 	param.Command = "GetWeather"
 	param.Params.City = "Moscow"
 	param.Params.Date = 1532255871
-	processRequest(param)
+	//processRequest(param)
 
 	//query := "select f.*, s.name from forecasts f inner join sities s on f.city_id = s.id and s.name = '" + param.Params.City + "' and f.time > " + strconv.Itoa(int(param.Params.Date)) + " order by f.time desc limit 1"
 	/*
@@ -300,6 +341,18 @@ func main() {
 	forecastNow := getCorrectForecastData(db, *param)
 	//fmt.Println("result query count", len(forecastNow))
 	fmt.Println("Closed forecast for", time.Unix(forecastNow.Object.Date, 0), "City", forecastNow.Object.City, "Temperature is", forecastNow.Object.Temp)
+
+	listener, err := net.Listen("tcp", ":7777")
+	if err != nil {
+		fmt.Println("Error listening socket\n", err)
+	}
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			fmt.Println("Error accept connection", err)
+		}
+		go handleConnection(conn, db)
+	}
 
 	/* infinity collect data from OpenWeatherMap
 	for {
