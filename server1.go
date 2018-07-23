@@ -106,7 +106,7 @@ type forecast struct {
 }
 
 type requestError struct {
-	Error string `json:"error,omitempty"`
+	Message string `json:"message,omitempty"`
 }
 
 type requestObject struct {
@@ -191,11 +191,12 @@ func readRowsFromPG(db *sql.DB, query string) (forecastResult []*forecast, err e
 		fmt.Println(err)
 		return nil, err
 	}
+
 	return resultForecast, nil
 
 }
 
-func getForecastData(db *sql.DB) (err error) {
+func getAndSubmitForecastData(db *sql.DB) (err error) {
 	var packOfCities cityPackData
 	err = GetJsonFromUrl(makeRequestString(apiAddr, appid), &packOfCities)
 
@@ -217,6 +218,53 @@ func getForecastData(db *sql.DB) (err error) {
 	return nil
 }
 
+func processRequest(request *requestInfo) /*result requestReturn*/ {
+	switch request.Command {
+	case "GetWeather":
+		fmt.Println("!Getting weather info")
+
+	case "closeConnection":
+		fmt.Println("Closing connection")
+	}
+	//return request
+}
+
+func makeQueryStringForClientRequest(city string, time int64) string {
+	return "(select f.*, s.name from forecasts f inner join sities s on f.city_id = s.id and s.name = '" + city + "' and f.time < " + strconv.FormatInt(time, 10) + " order by f.time desc limit 1) union (select f.*, s.name from forecasts f inner join sities s on f.city_id = s.id and s.name = '" + city + "' and f.time >= " + strconv.FormatInt(time, 10) + " order by f.time asc limit 1) limit 2"
+}
+
+func getCorrectForecastData(db *sql.DB, request requestInfo) (result requestReturn) {
+	forecastNow, err := readRowsFromPG(db, makeQueryStringForClientRequest(request.Params.City, request.Params.Date))
+	if err != nil {
+		fmt.Println(err)
+	}
+	closest := -1
+	if len(forecastNow) > 1 {
+		if forecastNow[1].Time-request.Params.Date <= request.Params.Date-forecastNow[0].Time {
+			closest = 1
+		} else {
+			closest = 0
+		}
+	} else {
+		if len(forecastNow) == 1 {
+			closest = 0
+		}
+	}
+
+	result.Command = request.Command
+
+	if closest < 0 {
+		result.Error.Message = "Data not found"
+	} else {
+		result.Object.Date = forecastNow[closest].Time
+		result.Object.City = forecastNow[closest].City_name
+		result.Object.Pressure = forecastNow[closest].Pressure
+		result.Object.Humidity = forecastNow[closest].Humidity
+		result.Object.Temp = forecastNow[closest].Temp
+	}
+	return result
+}
+
 func main() {
 	db, err := sql.Open("postgres", "postgres://postgres:asecurepassword@localhost/weather?sslmode=disable")
 	if err != nil {
@@ -227,15 +275,31 @@ func main() {
 	param := new(requestInfo)
 	param.Command = "GetWeather"
 	param.Params.City = "Moscow"
-	param.Params.Date = 1532284783
+	param.Params.Date = 1532255871
+	processRequest(param)
 
-	query := "select f.*, s.name from forecasts f inner join sities s on f.city_id = s.id and s.name = '" + param.Params.City + "' and f.time > " + strconv.Itoa(int(param.Params.Date)) + " order by f.time asc limit 1"
-
-	forecastNow, err := readRowsFromPG(db, query)
-	if err != nil {
-		fmt.Println(err)
-	}
-	fmt.Println("Closed forecast for", time.Unix(forecastNow[0].Time, 0), "City", forecastNow[0].City_name, "Temperature is", forecastNow[0].Temp)
+	//query := "select f.*, s.name from forecasts f inner join sities s on f.city_id = s.id and s.name = '" + param.Params.City + "' and f.time > " + strconv.Itoa(int(param.Params.Date)) + " order by f.time desc limit 1"
+	/*
+		forecastNow, err := readRowsFromPG(db, makeQueryStringForClientRequest(param.Params.City, param.Params.Date))
+		if err != nil {
+			fmt.Println(err)
+		}
+		closest := -1
+		if len(forecastNow) > 1 {
+			if forecastNow[1].Time - param.Params.Date <= param.Params.Date - forecastNow[0].Time {
+				closest = 1
+			} else {
+				closest = 0
+			}
+		} else {
+			if len(forecastNow) == 1 {
+				closest = 0
+			}
+		}
+	*/
+	forecastNow := getCorrectForecastData(db, *param)
+	//fmt.Println("result query count", len(forecastNow))
+	fmt.Println("Closed forecast for", time.Unix(forecastNow.Object.Date, 0), "City", forecastNow.Object.City, "Temperature is", forecastNow.Object.Temp)
 
 	/* infinity collect data from OpenWeatherMap
 	for {
