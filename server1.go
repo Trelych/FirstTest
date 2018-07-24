@@ -3,7 +3,7 @@ package main
 import (
 	"bufio"
 	"database/sql"
-	"encoding/binary"
+	//	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"time"
 	//	"bytes"
+	"encoding/binary"
 )
 
 var (
@@ -274,9 +275,9 @@ func handleConnection(conn net.Conn, db *sql.DB) {
 	//conn.SetDeadline(time.Now()+(10*time.Second))
 	name := conn.RemoteAddr().String()
 	fmt.Println("New connection from", name)
-	var returnByteArray []byte
+	returnByteArray := make([]byte, 4)
 	var amount uint32
-	amount = 0
+	amount = 5
 	var request requestInfo
 	var responce requestReturn
 	defer func() {
@@ -295,6 +296,7 @@ func handleConnection(conn net.Conn, db *sql.DB) {
 		} else {
 			responce = processRequest(request, db)
 			myByteArray, err = json.Marshal(responce)
+			fmt.Println("sending marshaled data to client \n", string(myByteArray))
 			binary.LittleEndian.PutUint32(returnByteArray, amount)
 			for _, x := range myByteArray {
 				returnByteArray = append(returnByteArray, x)
