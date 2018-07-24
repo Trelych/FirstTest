@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bufio"
+	//	"bufio"
 	"database/sql"
 	//	"encoding/binary"
 	"encoding/json"
@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"time"
 	//	"bytes"
+	//	"encoding/binary"
 	"encoding/binary"
 )
 
@@ -223,7 +224,7 @@ func getAndSubmitForecastData(db *sql.DB) (err error) {
 	return nil
 }
 
-func processRequest(request requestInfo, db *sql.DB) (result requestReturn) {
+func processRequest(request requestInfo, db *sql.DB) (result requestReturn, needClose bool) {
 	switch request.Command {
 	case "GetWeather":
 		fmt.Println("!Getting weather info")
@@ -231,8 +232,9 @@ func processRequest(request requestInfo, db *sql.DB) (result requestReturn) {
 
 	case "closeConnection":
 		fmt.Println("Closing connection")
+		return result, true
 	}
-	return result
+	return result, false
 }
 
 func makeQueryStringForClientRequest(city string, time int64) string {
@@ -275,37 +277,54 @@ func handleConnection(conn net.Conn, db *sql.DB) {
 	//conn.SetDeadline(time.Now()+(10*time.Second))
 	name := conn.RemoteAddr().String()
 	fmt.Println("New connection from", name)
-	returnByteArray := make([]byte, 4)
+
 	var amount uint32
-	amount = 5
 	var request requestInfo
-	var responce requestReturn
+	//var responce requestReturn
 	defer func() {
 		conn.Close()
 		fmt.Println("disconnected")
 	}()
-	scanner := bufio.NewScanner(conn)
-	for scanner.Scan() {
-		myByteArray := scanner.Bytes()
-		fmt.Println("Received array of Bytes\nAmount of bytes received", len(myByteArray))
-		fmt.Println("Array is", string(myByteArray))
-		err := json.Unmarshal(myByteArray[4:], &request)
+
+	for {
+		sendByteArray := make([]byte, 4)
+		buff := make([]byte, 1024)
+		x, err := conn.Read(buff)
+		if err != nil {
+			fmt.Println("Error reading", err)
+		}
+		fmt.Println("Received", x, "bytes:", string(buff))
+		//break
+		fmt.Println(buff[0:4], string(buff[0:4]))
+		amount = binary.BigEndian.Uint32([]byte(buff[0:4]))
+		fmt.Println("amount =", amount)
+		fmt.Println("Unmarshalling", string(buff[4:amount+4]))
+		err = json.Unmarshal(buff[4:amount+4], &request)
 		if err != nil {
 			fmt.Println("Unmarshal error: ", err)
 			break
-		} else {
-			responce = processRequest(request, db)
-			myByteArray, err = json.Marshal(responce)
-			fmt.Println("sending marshaled data to client \n", string(myByteArray))
-			binary.LittleEndian.PutUint32(returnByteArray, amount)
-			for _, x := range myByteArray {
-				returnByteArray = append(returnByteArray, x)
-			}
-			conn.Write(returnByteArray)
-
 		}
+		responce, needClose := processRequest(request, db)
+		if needClose == true {
+			fmt.Println("closing connection")
+			break
+		}
+		buff, err = json.Marshal(responce)
+		fmt.Println("sending marshaled data to client \n", string(buff))
+		amount = uint32(len(buff))
+		binary.BigEndian.PutUint32(sendByteArray, amount)
+		for _, x := range buff {
+			sendByteArray = append(sendByteArray, x)
+		}
+		x, err = conn.Write(sendByteArray)
+		if err != nil {
+			fmt.Println("error sending:", err)
+		}
+		fmt.Println(x, "bytes writen")
+		fmt.Println(string(sendByteArray), "sent")
 
 	}
+
 }
 
 func main() {
