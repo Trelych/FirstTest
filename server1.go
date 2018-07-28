@@ -1,9 +1,8 @@
 package main
 
 import (
-	//	"bufio"
 	"database/sql"
-	//	"encoding/binary"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,15 +13,14 @@ import (
 	"net/http"
 	"strconv"
 	"time"
-	//	"bytes"
-	//	"encoding/binary"
-	"encoding/binary"
 )
 
 var (
-	appid        = "6a1fbe6d745b0ed366e29c17c4f0624d"
-	apiAddr      = "http://api.openweathermap.org/data/2.5/group?id=2643741,524901,5391959,1816670&units=metric&appid="
-	hPaToRussian = 0.750062
+	owmApiKey           = "6a1fbe6d745b0ed366e29c17c4f0624d"
+	owmGroupRequestAddr = "http://api.openweathermap.org/data/2.5/group?id="
+	owmApiAddParam      = "&units=metric&appid="
+	hPaToRussian        = 0.750062
+	citiesForRequest    = []int{2643741, 524901, 5391959, 1816670}
 )
 
 type coord struct {
@@ -94,7 +92,7 @@ type cityPackData struct {
 	CityPackData []openWeatherFull `json:"list"`
 }
 
-type sities struct {
+type sitiesTable struct {
 	Id             int64
 	Name           string
 	Country        string
@@ -165,12 +163,19 @@ func GetJsonFromUrl(url string, jsonObject interface{}) (error error) {
 	return nil
 }
 
-func makeRequestString(param ...string) (result string) {
+func makeOWMApiRequestString() (result string) {
 	result = ""
-	for _, x := range param {
-		result += x
+	result += owmGroupRequestAddr
+	for i := 0; i < len(citiesForRequest); i++ {
+		result += strconv.Itoa(int(citiesForRequest[i]))
+		if i != len(citiesForRequest)-1 {
+			result += ","
+		}
 	}
-	fmt.Println(result)
+	result += owmApiAddParam
+	result += owmApiKey
+
+	//fmt.Println(result)
 	return result
 
 }
@@ -204,7 +209,7 @@ func readRowsFromPG(db *sql.DB, query string) (forecastResult []*forecast, err e
 
 func getAndSubmitForecastData(db *sql.DB) (err error) {
 	var packOfCities cityPackData
-	err = GetJsonFromUrl(makeRequestString(apiAddr, appid), &packOfCities)
+	err = GetJsonFromUrl(makeOWMApiRequestString(), &packOfCities)
 
 	if err != nil {
 		fmt.Println("error getting json:\n", err)
@@ -332,7 +337,7 @@ func main() {
 	if err != nil {
 		fmt.Println(err)
 	}
-
+	//fmt.Println("Query address is:",makeOWMApiRequestString())
 	//test stuct to check the right
 	param := new(requestInfo)
 	param.Command = "GetWeather"
@@ -340,7 +345,7 @@ func main() {
 	param.Params.Date = 1532255871
 	//processRequest(param)
 
-	//query := "select f.*, s.name from forecasts f inner join sities s on f.city_id = s.id and s.name = '" + param.Params.City + "' and f.time > " + strconv.Itoa(int(param.Params.Date)) + " order by f.time desc limit 1"
+	//query := "select f.*, s.name from forecasts f inner join sitiesTable s on f.city_id = s.id and s.name = '" + param.Params.City + "' and f.time > " + strconv.Itoa(int(param.Params.Date)) + " order by f.time desc limit 1"
 	/*
 		forecastNow, err := readRowsFromPG(db, makeQueryStringForClientRequest(param.Params.City, param.Params.Date))
 		if err != nil {
@@ -389,7 +394,7 @@ func main() {
 
 	/*
 		nowForecast := make([]*forecast, 0)
-		requestString := "SELECT f.*, s2.name FROM forecasts f INNER JOIN sities s2 ON f.city_id = s2.id"
+		requestString := "SELECT f.*, s2.name FROM forecasts f INNER JOIN sitiesTable s2 ON f.city_id = s2.id"
 		nowForecast, err = readRowsFromPG(db, requestString)
 		if err != nil {
 			fmt.Println(err)
