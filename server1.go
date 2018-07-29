@@ -92,13 +92,14 @@ type cityPackData struct {
 	CityPackData []openWeatherFull `json:"list"`
 }
 
+/* can be needed in future
 type sitiesTable struct {
 	Id             int64
 	Name           string
 	Country        string
 	Weather_api_id int64
 }
-
+*/
 type forecast struct {
 	Id        int64 //`omitempty`
 	Time      int64
@@ -282,6 +283,26 @@ func getCorrectForecastData(db *sql.DB, request requestInfo) (result requestRetu
 	return result
 }
 
+func fillSitiesTable(db *sql.DB) (err error) {
+	var packOfCities cityPackData
+	err = GetJsonFromUrl(makeOWMApiRequestString(), &packOfCities)
+
+	if err != nil {
+		fmt.Println("error getting json:\n", err)
+		return err
+	}
+	for i := range packOfCities.CityPackData {
+
+		_, err := db.Exec("INSERT INTO sities VALUES($1, $2, $3, $4)", i, packOfCities.CityPackData[i].Name, packOfCities.CityPackData[i].Osys.Country, packOfCities.CityPackData[i].Id)
+		if err != nil {
+			fmt.Println("Error inserting:", err)
+			return err
+		}
+
+	}
+	return nil
+}
+
 func handleConnection(conn net.Conn, db *sql.DB) {
 	name := conn.RemoteAddr().String()
 	fmt.Println("New connection from", name)
@@ -333,6 +354,12 @@ func main() {
 	if err != nil {
 		fmt.Println(err)
 	}
+	//fill the table sities for first time data
+	err = fillSitiesTable(db)
+	if err != nil {
+		fmt.Println(err)
+	}
+
 	//permanent collect data and store it into database
 	go func() {
 		getAndSubmitForecastData(db)
