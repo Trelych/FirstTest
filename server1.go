@@ -132,6 +132,7 @@ type requestReturn struct {
 	Object  requestObject `json:"object,omitempty"`
 }
 
+//get and parse JSON using URL and given structure as parameter
 func GetJsonFromUrl(url string, jsonObject interface{}) (error error) {
 	resp, err := http.Get(url)
 	if err != nil {
@@ -163,6 +164,7 @@ func GetJsonFromUrl(url string, jsonObject interface{}) (error error) {
 	return nil
 }
 
+//make the url string to request weather data from OWM with selected pack of cities
 func makeOWMApiRequestString() (result string) {
 	result = ""
 	result += owmGroupRequestAddr
@@ -174,13 +176,12 @@ func makeOWMApiRequestString() (result string) {
 	}
 	result += owmApiAddParam
 	result += owmApiKey
-
-	//fmt.Println(result)
 	return result
 
 }
 
-func readRowsFromPG(db *sql.DB, query string) (forecastResult []*forecast, err error) {
+//getting needed struct with database request string
+func getRequestedForecastDataFomPG(db *sql.DB, query string) (forecastResult []*forecast, err error) {
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, err
@@ -229,14 +230,15 @@ func getAndSubmitForecastData(db *sql.DB) (err error) {
 	return nil
 }
 
+//check the requested command from client and process the chosen command
 func processRequest(request requestInfo, db *sql.DB) (result requestReturn, needClose bool) {
 	switch request.Command {
 	case "GetWeather":
-		fmt.Println("!Getting weather info")
+		//fmt.Println("!Getting weather info")
 		result = getCorrectForecastData(db, request)
 
 	case "closeConnection":
-		fmt.Println("Closing connection")
+		//fmt.Println("Closing connection")
 		return result, true
 	}
 	return result, false
@@ -246,12 +248,14 @@ func makeQueryStringForClientRequest(city string, time int64) string {
 	return "(select f.*, s.name from forecasts f inner join sities s on f.city_id = s.id and s.name = '" + city + "' and f.time < " + strconv.FormatInt(time, 10) + " order by f.time desc limit 1) union (select f.*, s.name from forecasts f inner join sities s on f.city_id = s.id and s.name = '" + city + "' and f.time >= " + strconv.FormatInt(time, 10) + " order by f.time asc limit 1) limit 2"
 }
 
+//get up to 2 nearest data from client request and return 1 most closest forecast
 func getCorrectForecastData(db *sql.DB, request requestInfo) (result requestReturn) {
-	forecastNow, err := readRowsFromPG(db, makeQueryStringForClientRequest(request.Params.City, request.Params.Date))
+	forecastNow, err := getRequestedForecastDataFomPG(db, makeQueryStringForClientRequest(request.Params.City, request.Params.Date))
 	if err != nil {
 		fmt.Println(err)
 	}
 	closest := -1
+	//if have 2 nearest, check closest, get it's number in array
 	if len(forecastNow) > 1 {
 		if forecastNow[1].Time-request.Params.Date <= request.Params.Date-forecastNow[0].Time {
 			closest = 1
@@ -279,31 +283,23 @@ func getCorrectForecastData(db *sql.DB, request requestInfo) (result requestRetu
 }
 
 func handleConnection(conn net.Conn, db *sql.DB) {
-	//conn.SetDeadline(time.Now()+(10*time.Second))
 	name := conn.RemoteAddr().String()
 	fmt.Println("New connection from", name)
-
 	var amount uint32
 	var request requestInfo
-	//var responce requestReturn
+
 	defer func() {
 		conn.Close()
 		fmt.Println("disconnected")
 	}()
 
 	for {
-		sendByteArray := make([]byte, 4)
 		buff := make([]byte, 1024)
-		x, err := conn.Read(buff)
+		_, err := conn.Read(buff)
 		if err != nil {
 			fmt.Println("Error reading", err)
 		}
-		fmt.Println("Received", x, "bytes:", string(buff))
-		//break
-		fmt.Println(buff[0:4], string(buff[0:4]))
 		amount = binary.BigEndian.Uint32([]byte(buff[0:4]))
-		fmt.Println("amount =", amount)
-		fmt.Println("Unmarshalling", string(buff[4:amount+4]))
 		err = json.Unmarshal(buff[4:amount+4], &request)
 		if err != nil {
 			fmt.Println("Unmarshal error: ", err)
@@ -314,20 +310,20 @@ func handleConnection(conn net.Conn, db *sql.DB) {
 			fmt.Println("closing connection")
 			break
 		}
+		//creating array with size of 4 bytes to begin store size of marshaled json response string
+		sendByteArray := make([]byte, 4)
 		buff, err = json.Marshal(responce)
-		fmt.Println("sending marshaled data to client \n", string(buff))
+		//check the marshaled byte array size and put it into 4 first bytes of response
 		amount = uint32(len(buff))
 		binary.BigEndian.PutUint32(sendByteArray, amount)
+		//put marshaled data to same array and send it to client
 		for _, x := range buff {
 			sendByteArray = append(sendByteArray, x)
 		}
-		x, err = conn.Write(sendByteArray)
+		_, err = conn.Write(sendByteArray)
 		if err != nil {
 			fmt.Println("error sending:", err)
 		}
-		fmt.Println(x, "bytes writen")
-		fmt.Println(string(sendByteArray), "sent")
-
 	}
 
 }
@@ -337,37 +333,13 @@ func main() {
 	if err != nil {
 		fmt.Println(err)
 	}
-	//fmt.Println("Query address is:",makeOWMApiRequestString())
-	//test stuct to check the right
-	param := new(requestInfo)
-	param.Command = "GetWeather"
-	param.Params.City = "Moscow"
-	param.Params.Date = 1532255871
-	//processRequest(param)
+	//permanent collect data and store it into database
+	go func() {
+		getAndSubmitForecastData(db)
+		time.Sleep(time.Hour)
+	}()
 
-	//query := "select f.*, s.name from forecasts f inner join sitiesTable s on f.city_id = s.id and s.name = '" + param.Params.City + "' and f.time > " + strconv.Itoa(int(param.Params.Date)) + " order by f.time desc limit 1"
-	/*
-		forecastNow, err := readRowsFromPG(db, makeQueryStringForClientRequest(param.Params.City, param.Params.Date))
-		if err != nil {
-			fmt.Println(err)
-		}
-		closest := -1
-		if len(forecastNow) > 1 {
-			if forecastNow[1].Time - param.Params.Date <= param.Params.Date - forecastNow[0].Time {
-				closest = 1
-			} else {
-				closest = 0
-			}
-		} else {
-			if len(forecastNow) == 1 {
-				closest = 0
-			}
-		}
-	*/
-	forecastNow := getCorrectForecastData(db, *param)
-	//fmt.Println("result query count", len(forecastNow))
-	fmt.Println("Closed forecast for", time.Unix(forecastNow.Object.Date, 0), "City", forecastNow.Object.City, "Temperature is", forecastNow.Object.Temp)
-
+	//begin to listen tcp socket connection on localhost port 7777
 	listener, err := net.Listen("tcp", ":7777")
 	if err != nil {
 		fmt.Println("Error listening socket\n", err)
@@ -377,33 +349,8 @@ func main() {
 		if err != nil {
 			fmt.Println("Error accept connection", err)
 		}
+		//for multiple connection, run handler in goroutine
 		go handleConnection(conn, db)
 	}
-
-	/* infinity collect data from OpenWeatherMap
-	for {
-		err := getForecastData(db)
-		if err != nil {
-			fmt.Println(err)
-		} else {
-			time.Sleep(time.Hour)
-		}
-
-	}
-	*/
-
-	/*
-		nowForecast := make([]*forecast, 0)
-		requestString := "SELECT f.*, s2.name FROM forecasts f INNER JOIN sitiesTable s2 ON f.city_id = s2.id"
-		nowForecast, err = readRowsFromPG(db, requestString)
-		if err != nil {
-			fmt.Println(err)
-		}
-		fmt.Println(nowForecast)
-
-		for _, line := range nowForecast {
-			fmt.Println("\n\nForecast for city #", line.City_name, "at", time.Unix(line.Time, 0), "\nTemperature", line.Temp, "C degrees\nHumidity =", line.Humidity, "%\nPressure =", line.Pressure, "mmHg")
-		}
-	*/
 
 }
