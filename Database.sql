@@ -10,8 +10,8 @@ CREATE TABLE sities
   country varchar NOT NULL,
   weather_api_id int NOT NULL
 );
-CREATE UNIQUE INDEX sities_id_uindex ON sities1 (id);
-CREATE UNIQUE INDEX sities_weather_api_id_uindex ON sities1 (weather_api_id)
+CREATE UNIQUE INDEX sities_id_uindex ON sities (id);
+CREATE UNIQUE INDEX sities_weather_api_id_uindex ON sities (weather_api_id)
 
 
 
@@ -23,6 +23,6 @@ CREATE TABLE public.forecast
   humidity decimal NOT NULL,
   pressure decimal NOT NULL,
   city_id int,
-  CONSTRAINT city_Id FOREIGN KEY (city_id) REFERENCES public.sities1 (id)
+  CONSTRAINT city_Id FOREIGN KEY (city_id) REFERENCES public.sities (id)
 );
-CREATE UNIQUE INDEX forecast1_id_uindex ON public.forecast1 (id);
+CREATE UNIQUE INDEX forecast1_id_uindex ON public.forecast (id);
