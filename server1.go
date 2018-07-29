@@ -153,7 +153,7 @@ func GetJsonFromUrl(url string, jsonObject interface{}) (error error) {
 		fmt.Println("========================")
 		return err
 	}
-	fmt.Println(string(result))
+	//fmt.Println(string(result))
 	err = json.Unmarshal(result, &jsonObject)
 	if err != nil {
 		fmt.Println("=====ERROR Unmarshal =====")
@@ -161,7 +161,7 @@ func GetJsonFromUrl(url string, jsonObject interface{}) (error error) {
 		fmt.Println("========================")
 		return err
 	}
-	fmt.Println(jsonObject)
+	//fmt.Println(jsonObject)
 	return nil
 }
 
@@ -219,12 +219,10 @@ func getAndSubmitForecastData(db *sql.DB) (err error) {
 	}
 	for i := range packOfCities.CityPackData {
 
-		result, err := db.Exec("INSERT INTO forecasts VALUES(DEFAULT, $1, $2, $3, $4, (select id from sities where weather_api_id = $5))", packOfCities.CityPackData[i].Dt, (math.Round(packOfCities.CityPackData[i].Omain.Temp*100) / 100), (math.Round(packOfCities.CityPackData[i].Omain.Humidity*100) / 100), (math.Round((packOfCities.CityPackData[i].Omain.Pressure * hPaToRussian * 100) / 100)), packOfCities.CityPackData[i].Id)
+		_, err := db.Exec("INSERT INTO forecasts VALUES(DEFAULT, $1, $2, $3, $4, (select id from sities where weather_api_id = $5))", packOfCities.CityPackData[i].Dt, (math.Round(packOfCities.CityPackData[i].Omain.Temp*100) / 100), (math.Round(packOfCities.CityPackData[i].Omain.Humidity*100) / 100), (math.Round((packOfCities.CityPackData[i].Omain.Pressure * hPaToRussian * 100) / 100)), packOfCities.CityPackData[i].Id)
 		if err != nil {
 			fmt.Println("Error inserting:", err)
 			return err
-		} else {
-			fmt.Println(result)
 		}
 
 	}
